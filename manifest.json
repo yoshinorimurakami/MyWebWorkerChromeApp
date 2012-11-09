@@ -1,0 +1,16 @@
+{
+  "name": "Discover Web Server",
+  "description": "Discover Local Web Browser",
+  "version": "0.0.1.1",
+  "icons": {
+    "128": "icon_128.png"
+  },
+  "app": {
+    "launch": {
+      "local_path": "discoverWeb.html"
+    }
+  },
+  "content_security_policy": "default-src * 'unsafe-inline'",
+  "permissions": [ "http://*/*" ]
+
+}

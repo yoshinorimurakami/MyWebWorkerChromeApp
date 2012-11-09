@@ -1,0 +1,180 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="ja">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <title>Discover Local Web Server by XMLHTTPRequest and Web Worker</title>
+</head>
+<body>
+
+    <h2>Experimental Local Web Server Discovery App </h2>
+
+<div style="border:outset 1px; padding:0.5em">
+<table>
+<tr><td>Start Address:</td>
+  <td>
+    <input type="text" id="addr" value="192.168.0.1" size="15" onkeyup="calc_range()"> /
+    <input type="text" id="slash" value="24" size="2" onkeyup="calc_mask()">
+  </td></tr>
+<tr><td>Netmask:</td>
+    <td><input type="text" id="mask" size="15" onkeyup="calc_slash()">
+  </td></tr>
+<tr><td>Net Range:</td><td><span id="netrange"></span></td></tr>
+</table>
+</div>
+<br />
+    <form>
+        <input type="button" id="startBtn" onclick = "discoverWebWithWorker()" value="Start Discover <Start IP ~ +64>" />
+    </form>
+
+    <div id="previousList" class="addrList"></div>
+    <ul id="myTemplate" style="display:none;">
+        <li>
+            <a class="entry"><div>Web Server: </div></a><div></div>
+        </li>
+    </ul>
+    <ul id="myTemplateForErr" style="display:none;">
+        <li>
+            <font color="gray"></font>
+        </li>
+    </ul>
+
+    <script>  
+    var THISAPP_SEARCHNUMBER = 20
+    // 254  Safari@Macintosh, 90 Chrome@Macintosh, 20 Chrome@WindowsXP, 20 Chrome@ChromeBook
+         
+    function gotOneReply(rcDict){
+    
+    if (rcDict.rc == 'Found') {
+        var tmpl=document.getElementById('myTemplate');
+        var tmpl_li = tmpl.getElementsByTagName('li')[0];
+        var li = tmpl_li.cloneNode(true); 
+        var link = li.getElementsByTagName('a')[0];
+            link.href = 'javascript:openWindow(\'http://' + rcDict.linkAdr + '\')';
+        var addr = link.getElementsByTagName('div')[0];
+            addr.appendChild(document.createTextNode(rcDict.title));
+        var memo = li.getElementsByTagName('div')[1];
+        
+        ////// I like to put this logic in Worker. But, DOMParser doesn't work in Worker !!?
+        var xmldom = new DOMParser();
+        xmldom.async = false;
+        var dom = xmldom.parseFromString( rcDict.memo, "text/xml" );
+        var titleObj = dom.getElementsByTagName('title')[0];
+        if (titleObj != undefined)
+            memo.appendChild(document.createTextNode(titleObj.textContent));
+        var titleObj = dom.getElementsByTagName('TITLE')[0];
+        if (titleObj != undefined)
+            memo.appendChild(document.createTextNode(titleObj.textContent));
+        ///////    
+        var ul = document.createElement('ul');
+        ul.appendChild(li);
+     } else { // Case Error
+        var tmpl=document.getElementById('myTemplateForErr');
+        var tmpl_li = tmpl.getElementsByTagName('li')[0];
+        var li = tmpl_li.cloneNode(true);
+        var msg= li.getElementsByTagName('font')[0];
+            msg.appendChild(document.createTextNode(rcDict.rc + ' ' + rcDict.linkAdr));
+        var ul = document.createElement('ul');
+        ul.appendChild(li);
+     }
+    /* previousList に 一ケ追加 */
+    var prev = document.getElementById('previousList');
+    prev.appendChild(ul);
+
+    }
+    
+    function discoverWebWithWorker() {
+    
+        for (var i = inet_aton(calc_startAdr()); i <= inet_aton(calc_endAdr()); i++){
+            // let's make 1 worker for 1 web
+            var worker = new Worker("knockOneWeb_Worker.js");   
+            worker.onmessage = function (evtFromWorker) {
+                gotOneReply(evtFromWorker.data)
+            }
+            worker.postMessage(inet_ntoa(i));
+        }
+    }
+    function openWindow (url) {
+        var x=window.open(url, url);
+        x.focus();
+    }
+    </script>
+    
+
+<script>
+calc_mask();
+function $(id){ return document.getElementById(id) }
+function calc_slash(){
+  $('slash').value = mask2slash($('mask').value);
+  calc_range();
+}
+function calc_mask(){
+  $('mask').value = slash2mask($('slash').value);
+  calc_range();
+}
+function calc_range(){
+  $('netrange').innerHTML 
+    = netrange($('addr').value, $('mask').value).join(' ~ ');
+    updt_startBtn();
+}
+
+function updt_startBtn(){
+
+    var startAdr_N = inet_aton(document.getElementById('addr').value);
+    $('startBtn').value = "Start Discover "+calc_startAdr() +" ~ "+calc_endAdr();
+}
+function calc_startAdr(){
+    return $('addr').value;
+}
+function calc_endAdr(){
+
+        var startAdr_N = inet_aton($('addr').value);
+        var mask = document.getElementById('mask').value
+        var na = startAdr_N;
+        var nm = inet_aton(typeof(mask) == 'number' ? slash2mask(mask) : mask);
+        var startRangeAdr_N = na & nm;
+        var mx    = ~nm;
+        var maxRangeAdr_N = startRangeAdr_N + mx;
+            maxRangeAdr_N = inet_aton(inet_ntoa(maxRangeAdr_N));    // to get rid of sign manipuration
+        var endAdr_N = startAdr_N + THISAPP_SEARCHNUMBER;
+            if (endAdr_N > maxRangeAdr_N) endAdr_N = maxRangeAdr_N;
+            
+        return inet_ntoa(endAdr_N)
+}
+
+function inet_ntoa(n){
+  var octets = [];
+  for (var i = 3; i >= 0; i--, n >>>= 8) octets[i] = n & 0xff;
+  return octets.join('.');
+
+}
+
+function inet_aton(a){
+  var octets = a.split(/\./);
+  while (octets.length < 4) octets.splice(1,0,0); // e.g. 127.1 -> 127.0.0.1
+  var n = 0;
+  for (var i = 0; i < 4; i++) n = (n * 256) + parseInt(octets[i]);
+  return n;
+}
+
+function slash2mask(n){
+  // js says 1 << 32 == 0
+  return inet_ntoa(  n ? 0xffffffff - ((1 << (32-n)) - 1) : 0 );
+};
+
+function mask2slash(a){
+  var n = inet_aton(a);
+  var m = 32;
+  for(;m && !(n & 1); m--) n >>>= 1;
+  return m;
+}
+
+function netrange(addr, mask){
+  var na = inet_aton(addr);
+  var nm = inet_aton(typeof(mask) == 'number' ? slash2mask(mask) : mask);
+  var start = na & nm;
+  var mx    = ~nm;
+  return [inet_ntoa(start), inet_ntoa(start + mx)];
+}
+</script>
+</body>
+</html>
